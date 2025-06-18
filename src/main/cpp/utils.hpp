@@ -5,12 +5,6 @@
 #include "llama.h"
 #include "base64.hpp"
 
-// increase max payload length to allow use of larger context size
-#define CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH 1048576
-// disable Nagle's algorithm
-#define CPPHTTPLIB_TCP_NODELAY true
-#include "httplib.h"
-
 // Change JSON_ASSERT from assert() to GGML_ASSERT:
 #define JSON_ASSERT GGML_ASSERT
 #include "nlohmann/json.hpp"
@@ -488,17 +482,6 @@ static std::string tokens_to_output_formatted_string(const llama_context * ctx, 
     }
 
     return out;
-}
-
-static bool server_sent_event(httplib::DataSink & sink, const char * event, const json & data) {
-    const std::string str =
-        std::string(event) + ": " +
-        data.dump(-1, ' ', false, json::error_handler_t::replace) +
-        "\n\n"; // required by RFC 8895 - A message is terminated by a blank line (two line terminators in a row).
-
-    LOG_DBG("data stream, to_send: %s", str.c_str());
-
-    return sink.write(str.c_str(), str.size());
 }
 
 //
