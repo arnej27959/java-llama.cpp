@@ -364,7 +364,6 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved) {
 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jobject obj, jobjectArray jparams) {
     common_params params;
-    params.use_jinja = true;
 
     const jsize argc = env->GetArrayLength(jparams);
     char **argv = parse_string_array(env, jparams, argc);
