@@ -551,12 +551,12 @@ static json oaicompat_completion_params_parse(const json & body) {
 }
 
 struct oaicompat_parser_options {
-    bool use_jinja;
-    bool prefill_assistant;
+    bool use_jinja = true;
+    bool prefill_assistant = true;
     common_reasoning_format reasoning_format;
-    common_chat_templates * tmpls;
-    bool allow_image;
-    bool allow_audio;
+    common_chat_templates * tmpls = nullptr;
+    bool allow_image = false;
+    bool allow_audio = false;
     bool enable_thinking = true;
 };
 

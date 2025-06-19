@@ -364,6 +364,7 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved) {
 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jobject obj, jobjectArray jparams) {
     common_params params;
+    params.use_jinja = true;
 
     const jsize argc = env->GetArrayLength(jparams);
     char **argv = parse_string_array(env, jparams, argc);
@@ -458,6 +459,7 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
                 __func__);
         ctx_server->chat_templates = common_chat_templates_init(ctx_server->model, "chatml");
     }
+    ctx_server->oai_parser_opt.tmpls = ctx_server->chat_templates.get();
 
     // print sample chat example to make it clear which template is used
     LOG_INF("%s: chat template, chat_template: %s, example_format: '%s'\n", __func__,
@@ -762,7 +764,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
 
 JNIEXPORT jstring JNICALL Java_de_kherud_llama_LlamaModel_applyTemplate(JNIEnv *env, jobject obj, jstring jparams) {
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
-    auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
+    const auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
 
     std::string c_params = parse_jstring(env, jparams);
     json data = json::parse(c_params);
@@ -772,7 +774,7 @@ JNIEXPORT jstring JNICALL Java_de_kherud_llama_LlamaModel_applyTemplate(JNIEnv *
         oaicompat_chat_params_parse(data, ctx_server->oai_parser_opt, files);
 
     std::string tok_str = templateData.at("prompt");
-    jstring jtok_str = env->NewStringUTF(tok_str.c_str());
+    jstring jtok_str = env->NewStringUTF(tok_str.empty() ? "" : tok_str.c_str());
 
     return jtok_str;
 }
