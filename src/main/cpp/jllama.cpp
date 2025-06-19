@@ -773,7 +773,8 @@ JNIEXPORT jstring JNICALL Java_de_kherud_llama_LlamaModel_applyTemplate(JNIEnv *
         oaicompat_chat_params_parse(data, ctx_server->oai_parser_opt, files);
 
     std::string tok_str = templateData.at("prompt");
-    jstring jtok_str = env->NewStringUTF(tok_str.empty() ? "" : tok_str.c_str());
+    fprintf(stderr, "applyTemplate result: '%s'\n", tok_str.c_str());
+    jstring jtok_str = env->NewStringUTF(tok_str.c_str());
 
     return jtok_str;
 }
