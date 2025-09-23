@@ -27,7 +27,7 @@ set(LLAMA_BUILD_COMMON ON)
 FetchContent_Declare(
 	llama.cpp
 	GIT_REPOSITORY https://github.com/ggerganov/llama.cpp.git
-	GIT_TAG        b5688
+	GIT_TAG        b6545
 )
 FetchContent_MakeAvailable(llama.cpp)
 
@@ -71,7 +71,7 @@ endif()
 
 # include jni.h and jni_md.h
 if(NOT DEFINED JNI_INCLUDE_DIRS)
-    if(OS_NAME MATCHES "^Linux" OR OS_NAME STREQUAL "Mac")
+    if(OS_NAME MATCHES "^Linux" OR OS_NAME STREQUAL "Mac" OR OS_NAME STREQUAL "Darwin")
         set(JNI_INCLUDE_DIRS .github/include/unix)
     elseif(OS_NAME STREQUAL "Windows")
         set(JNI_INCLUDE_DIRS .github/include/windows)
