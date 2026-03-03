@@ -27,6 +27,22 @@
 #undef private
 #undef protected
 
+// Helper function to prepare a task result before calling to_json()
+// Completion results need update() called before to_json()
+namespace {
+    void prepare_result_for_json(server_task_result_ptr & result) {
+        // Only completion results (cmpl_final and cmpl_partial) need update() called
+        // They have an is_updated flag that must be set to true before to_json()
+        // For non-streaming mode, we create a minimal task_result_state
+        if (result && !result->is_error()) {
+            // Create a minimal state for update() - only matters for completion results
+            common_chat_parser_params parser_params;
+            task_result_state state(parser_params);
+            result->update(state);
+        }
+    }
+}
+
 // We store some references to Java classes and their fields/methods here to speed up things for later and to fail
 // early on if anything can't be found. This happens when the JVM loads the shared library (see `JNI_OnLoad`).
 // The references remain valid throughout the whole life of the shared library, on `JNI_OnUnload` they are released.
@@ -528,6 +544,9 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_receiveCompletion(JNIE
 
     server_task_result_ptr result = ctx_server->impl->queue_results.recv(id_task);
 
+    // Prepare result for JSON conversion (calls update() if needed)
+    prepare_result_for_json(result);
+
     if (result->is_error()) {
         std::string response = result->to_json()["message"].get<std::string>();
         ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
@@ -601,6 +620,9 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
     json error = nullptr;
 
     server_task_result_ptr result = ctx_server->impl->queue_results.recv(id_task);
+
+    // Prepare result for JSON conversion (calls update() if needed)
+    prepare_result_for_json(result);
 
     json response_str = result->to_json();
     if (result->is_error()) {
@@ -705,6 +727,10 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
 
     for (int i = 0; i < (int)task_ids.size(); i++) {
         server_task_result_ptr result = ctx_server->impl->queue_results.recv(task_ids);
+
+        // Prepare result for JSON conversion (calls update() if needed)
+        prepare_result_for_json(result);
+
         if (result->is_error()) {
             auto response = result->to_json()["message"].get<std::string>();
             for (const int id_task : task_ids) {
