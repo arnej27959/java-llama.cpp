@@ -13,19 +13,11 @@
 #include <iostream>
 #include <stdexcept>
 
-// Define private/protected as public BEFORE including server-context.cpp
-// This allows us to access private members of server_context_impl
-// This is a hack but necessary since we need access to params_base for params_from_json_cmpl
-#define private public
-#define protected public
-
 // Include the server-context implementation to access server_context_impl members
 // The impl struct has public members (vocab, queue_tasks, queue_results, chat_params)
 // that we need to access for our JNI implementation
+// Note: We no longer need #define private public since we use g_server_params instead
 #include "../../../build/_deps/llama.cpp-src/tools/server/server-context.cpp"
-
-#undef private
-#undef protected
 
 // Helper function to prepare a task result before calling to_json()
 // Completion results need update() called before to_json()
@@ -41,6 +33,13 @@ namespace {
             result->update(state);
         }
     }
+}
+
+// Store common_params to avoid accessing private impl->params_base
+// This follows the pattern used by server_routes which stores a const reference
+namespace {
+    common_params g_server_params;
+    bool g_params_initialized = false;
 }
 
 // We store some references to Java classes and their fields/methods here to speed up things for later and to fail
@@ -409,6 +408,10 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
         return;
     }
 
+    // Store params for later use (avoids accessing private impl->params_base)
+    g_server_params = params;
+    g_params_initialized = true;
+
     SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
     common_init();
@@ -489,6 +492,7 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
         );
 
         tasks.reserve(tokenized_prompts.size());
+        server_context_meta meta = ctx_server->get_meta();
         for (size_t i = 0; i < tokenized_prompts.size(); i++) {
             server_task task = server_task(type);
 
@@ -498,8 +502,8 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
             task.tokens = std::move(tokenized_prompts[i]);
             task.params = server_task::params_from_json_cmpl(
                 ctx_server->impl->vocab,
-                ctx_server->impl->params_base,
-                ctx_server->impl->n_ctx,
+                g_server_params,
+                meta.slot_n_ctx,
                 data
             );
             task.id_slot = json_value(data, "id_slot", -1);
@@ -584,7 +588,7 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
 
-    if (!ctx_server->impl->params_base.embedding) {
+    if (!g_server_params.embedding) {
         env->ThrowNew(c_llama_error,
                       "model was not loaded with embedding support (see ModelParameters#setEmbedding(boolean))");
         return nullptr;
@@ -676,7 +680,8 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
 
-    if (!ctx_server->impl->params_base.embedding || ctx_server->impl->params_base.pooling_type != LLAMA_POOLING_TYPE_RANK) {
+    server_context_meta meta = ctx_server->get_meta();
+    if (!g_server_params.embedding || meta.pooling_type != LLAMA_POOLING_TYPE_RANK) {
         env->ThrowNew(c_llama_error,
                       "This server does not support reranking. Start it with `--reranking`");
         return nullptr;
