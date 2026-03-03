@@ -13,12 +13,6 @@
 #include <iostream>
 #include <stdexcept>
 
-// Include the server-context implementation to access server_context_impl members
-// The impl struct has public members (vocab, queue_tasks, queue_results, chat_params)
-// that we need to access for our JNI implementation
-// Note: We no longer need #define private public since we use g_server_params instead
-#include "../../../build/_deps/llama.cpp-src/tools/server/server-context.cpp"
-
 // Helper function to prepare a task result before calling to_json()
 // Completion results need update() called before to_json()
 namespace {
@@ -33,13 +27,6 @@ namespace {
             result->update(state);
         }
     }
-}
-
-// Store common_params to avoid accessing private impl->params_base
-// This follows the pattern used by server_routes which stores a const reference
-namespace {
-    common_params g_server_params;
-    bool g_params_initialized = false;
 }
 
 // We store some references to Java classes and their fields/methods here to speed up things for later and to fail
@@ -408,10 +395,6 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
         return;
     }
 
-    // Store params for later use (avoids accessing private impl->params_base)
-    g_server_params = params;
-    g_params_initialized = true;
-
     SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
     common_init();
@@ -484,7 +467,7 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
         const auto &prompt = data.at("prompt");
 
         std::vector<server_tokens> tokenized_prompts = tokenize_input_prompts(
-            ctx_server->impl->vocab,
+            ctx_server->get_vocab(),
             nullptr,  // mtmd_context* - not used by jllama
             prompt,
             true,
@@ -496,14 +479,14 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
         for (size_t i = 0; i < tokenized_prompts.size(); i++) {
             server_task task = server_task(type);
 
-            task.id = ctx_server->impl->queue_tasks.get_new_id();
+            task.id = ctx_server->get_queue_tasks().get_new_id();
             task.index = i;
 
             task.tokens = std::move(tokenized_prompts[i]);
             task.params = server_task::params_from_json_cmpl(
-                ctx_server->impl->vocab,
-                g_server_params,
-                meta.slot_n_ctx,
+                ctx_server->get_vocab(),
+                ctx_server->get_params_base(),
+                ctx_server->get_n_ctx_slot(),
                 data
             );
             task.id_slot = json_value(data, "id_slot", -1);
@@ -522,9 +505,9 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
     }
 
     for (const auto & task : tasks) {
-        ctx_server->impl->queue_results.add_waiting_task_id(task.id);
+        ctx_server->get_queue_results().add_waiting_task_id(task.id);
     }
-    ctx_server->impl->queue_tasks.post(std::move(tasks));
+    ctx_server->get_queue_tasks().post(std::move(tasks));
 
     const auto task_ids = server_task::get_list_id(tasks);
 
@@ -539,21 +522,21 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_releaseTask(JNIEnv *env, jobject obj, jint id_task) {
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
-    ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+    ctx_server->get_queue_results().remove_waiting_task_id(id_task);
 }
 
 JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_receiveCompletion(JNIEnv *env, jobject obj, jint id_task) {
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
 
-    server_task_result_ptr result = ctx_server->impl->queue_results.recv(id_task);
+    server_task_result_ptr result = ctx_server->get_queue_results().recv(id_task);
 
     // Prepare result for JSON conversion (calls update() if needed)
     prepare_result_for_json(result);
 
     if (result->is_error()) {
         std::string response = result->to_json()["message"].get<std::string>();
-        ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+        ctx_server->get_queue_results().remove_waiting_task_id(id_task);
         env->ThrowNew(c_llama_error, response.c_str());
         return nullptr;
     }
@@ -561,7 +544,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_receiveCompletion(JNIE
 
     std::string response = out_res["content"].get<std::string>();
     if (result->is_stop()) {
-        ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+        ctx_server->get_queue_results().remove_waiting_task_id(id_task);
     }
 
     jobject o_probabilities = env->NewObject(c_hash_map, cc_hash_map);
@@ -588,7 +571,7 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
 
-    if (!g_server_params.embedding) {
+    if (!ctx_server->get_params_base().embedding) {
         env->ThrowNew(c_llama_error,
                       "model was not loaded with embedding support (see ModelParameters#setEmbedding(boolean))");
         return nullptr;
@@ -598,12 +581,12 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
 
     SRV_INF("Calling embedding '%s'\n", prompt.c_str());
 
-    const auto tokens_vec = tokenize_mixed(ctx_server->impl->vocab, prompt, true, true);
+    const auto tokens_vec = tokenize_mixed(ctx_server->get_vocab(), prompt, true, true);
     std::vector<server_task> tasks;
 
     server_task task = server_task(SERVER_TASK_TYPE_EMBEDDING);
 
-    task.id = ctx_server->impl->queue_tasks.get_new_id();
+    task.id = ctx_server->get_queue_tasks().get_new_id();
     task.index = 0;
     task.tokens = server_tokens(tokens_vec, false); // false = no multimodal
 
@@ -613,9 +596,9 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
     tasks.push_back(std::move(task));
 
     for (const auto & task : tasks) {
-        ctx_server->impl->queue_results.add_waiting_task_id(task.id);
+        ctx_server->get_queue_results().add_waiting_task_id(task.id);
     }
-    ctx_server->impl->queue_tasks.post(std::move(tasks));
+    ctx_server->get_queue_tasks().post(std::move(tasks));
 
     std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
     const auto id_task = *task_ids.begin();
@@ -623,7 +606,7 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
 
     json error = nullptr;
 
-    server_task_result_ptr result = ctx_server->impl->queue_results.recv(id_task);
+    server_task_result_ptr result = ctx_server->get_queue_results().recv(id_task);
 
     // Prepare result for JSON conversion (calls update() if needed)
     prepare_result_for_json(result);
@@ -631,13 +614,13 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
     json response_str = result->to_json();
     if (result->is_error()) {
         std::string response = result->to_json()["message"].get<std::string>();
-        ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+        ctx_server->get_queue_results().remove_waiting_task_id(id_task);
         env->ThrowNew(c_llama_error, response.c_str());
         return nullptr;
     }
 
     if (result->is_stop()) {
-        ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+        ctx_server->get_queue_results().remove_waiting_task_id(id_task);
     }
 
     const auto out_res = result->to_json();
@@ -681,7 +664,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
 
     server_context_meta meta = ctx_server->get_meta();
-    if (!g_server_params.embedding || meta.pooling_type != LLAMA_POOLING_TYPE_RANK) {
+    if (!ctx_server->get_params_base().embedding || meta.pooling_type != LLAMA_POOLING_TYPE_RANK) {
         env->ThrowNew(c_llama_error,
                       "This server does not support reranking. Start it with `--reranking`");
         return nullptr;
@@ -703,11 +686,11 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
     tasks.reserve(document_vector.size());
     for (int i = 0; i < document_vector.size(); i++) {
         auto task = server_task(SERVER_TASK_TYPE_RERANK);
-        task.id = ctx_server->impl->queue_tasks.get_new_id();
+        task.id = ctx_server->get_queue_tasks().get_new_id();
         task.index = i;
         task.tokens = format_prompt_rerank(
             model,
-            ctx_server->impl->vocab,
+            ctx_server->get_vocab(),
             nullptr,  // no multimodal
             prompt,   // query as string
             document_vector[i]  // doc as string
@@ -715,9 +698,9 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
         tasks.push_back(std::move(task));
     }
     for (const auto & task : tasks) {
-        ctx_server->impl->queue_results.add_waiting_task_id(task.id);
+        ctx_server->get_queue_results().add_waiting_task_id(task.id);
     }
-    ctx_server->impl->queue_tasks.post(std::move(tasks));
+    ctx_server->get_queue_tasks().post(std::move(tasks));
 
     // get the result
     std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
@@ -731,7 +714,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
     }
 
     for (int i = 0; i < (int)task_ids.size(); i++) {
-        server_task_result_ptr result = ctx_server->impl->queue_results.recv(task_ids);
+        server_task_result_ptr result = ctx_server->get_queue_results().recv(task_ids);
 
         // Prepare result for JSON conversion (calls update() if needed)
         prepare_result_for_json(result);
@@ -739,7 +722,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
         if (result->is_error()) {
             auto response = result->to_json()["message"].get<std::string>();
             for (const int id_task : task_ids) {
-                ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+                ctx_server->get_queue_results().remove_waiting_task_id(id_task);
             }
             env->ThrowNew(c_llama_error, response.c_str());
             return nullptr;
@@ -749,7 +732,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
 
         if (result->is_stop()) {
             for (const int id_task : task_ids) {
-                ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+                ctx_server->get_queue_results().remove_waiting_task_id(id_task);
             }
         }
 
@@ -776,7 +759,7 @@ JNIEXPORT jstring JNICALL Java_de_kherud_llama_LlamaModel_applyTemplate(JNIEnv *
 
     // Use the chat_params from the server context directly
     std::vector<raw_buffer> dummy_files;
-    json templateData = oaicompat_chat_params_parse(data, ctx_server->impl->chat_params, dummy_files);
+    json templateData = oaicompat_chat_params_parse(data, ctx_server->get_chat_params(), dummy_files);
     std::string tok_str = templateData.at("prompt");
     jstring jtok_str = env->NewStringUTF(tok_str.c_str());
 
@@ -789,7 +772,7 @@ JNIEXPORT jintArray JNICALL Java_de_kherud_llama_LlamaModel_encode(JNIEnv *env, 
 
     const std::string c_prompt = parse_jstring(env, jprompt);
 
-    llama_tokens tokens = tokenize_mixed(ctx_server->impl->vocab, c_prompt, false, true);
+    llama_tokens tokens = tokenize_mixed(ctx_server->get_vocab(), c_prompt, false, true);
     jsize token_size = tokens.size(); // NOLINT(*-narrowing-conversions)
 
     jintArray java_tokens = env->NewIntArray(token_size);
@@ -821,7 +804,7 @@ JNIEXPORT jbyteArray JNICALL Java_de_kherud_llama_LlamaModel_decodeBytes(JNIEnv 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_delete(JNIEnv *env, jobject obj) {
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
-    ctx_server->impl->queue_tasks.terminate();
+    ctx_server->get_queue_tasks().terminate();
     // delete ctx_server;
 }
 
@@ -829,7 +812,7 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_cancelCompletion(JNIEnv *
     jlong server_handle = env->GetLongField(obj, f_model_pointer);
     auto *ctx_server = reinterpret_cast<server_context *>(server_handle); // NOLINT(*-no-int-to-ptr)
     // Just remove the task from the waiting list - there's no explicit cancel method
-    ctx_server->impl->queue_results.remove_waiting_task_id(id_task);
+    ctx_server->get_queue_results().remove_waiting_task_id(id_task);
 }
 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_setLogger(JNIEnv *env, jclass clazz, jobject log_format,
