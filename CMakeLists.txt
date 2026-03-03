@@ -22,10 +22,13 @@ FetchContent_MakeAvailable(json)
 #################### llama.cpp ####################
 
 set(LLAMA_BUILD_COMMON ON)
+set(LLAMA_BUILD_TOOLS ON)
+set(LLAMA_BUILD_SERVER ON)
+
 FetchContent_Declare(
 	llama.cpp
-	GIT_REPOSITORY https://github.com/ggerganov/llama.cpp.git
-	GIT_TAG        b4916
+	GIT_REPOSITORY https://github.com/arnej27959/llama.cpp.git
+	GIT_TAG        b8192-a1
 )
 FetchContent_MakeAvailable(llama.cpp)
 
@@ -96,7 +99,7 @@ add_library(jllama SHARED src/main/cpp/jllama.cpp src/main/cpp/server.hpp src/ma
 
 set_target_properties(jllama PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(jllama PRIVATE src/main/cpp ${JNI_INCLUDE_DIRS})
-target_link_libraries(jllama PRIVATE common llama nlohmann_json)
+target_link_libraries(jllama PRIVATE server-context common llama nlohmann_json)
 target_compile_features(jllama PRIVATE cxx_std_11)
 
 target_compile_definitions(jllama PRIVATE
