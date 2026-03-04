@@ -410,6 +410,8 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
     LOG_INF("%s\n", common_params_get_system_info(params).c_str());
     LOG_INF("\n");
 
+    // Note: Server state management and slot_prompt_similarity are now handled internally by load_model()
+
     LOG_INF("%s: loading model\n", __func__);
 
     // load the model - this now handles all initialization internally
@@ -420,15 +422,37 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
         return;
     }
 
+    // Note: ctx_server->init() and state management are now handled internally by load_model()
+
     LOG_INF("%s: model loaded\n", __func__);
 
     const auto model_meta = ctx_server->get_meta();
 
-    // print sample chat example to make it clear which template is used
-    std::map<std::string, std::string> empty_kwargs;
-    LOG_INF("%s: chat template, chat_template: %s, example_format: '%s'\n", __func__,
-            common_chat_templates_source(model_meta.chat_params.tmpls.get()),
-            common_chat_format_example(model_meta.chat_params.tmpls.get(), model_meta.chat_params.use_jinja, empty_kwargs).c_str());
+    // Note: Speculative decoding is now handled internally by load_model()
+    // The old manual draft model initialization code has been removed
+
+    // Chat templates are initialized internally by load_model()
+    // Access them through impl->chat_params
+    auto & chat_params = ctx_server->get_chat_params();
+    chat_params.tmpls = common_chat_templates_init(ctx_server->get_model(), params.chat_template);
+    chat_params.use_jinja = params.use_jinja;
+
+    // Test template
+    try {
+        // print sample chat example to make it clear which template is used
+        std::map<std::string, std::string> empty_kwargs;
+        auto example_format = common_chat_format_example(model_meta.chat_params.tmpls.get(),
+                                                         model_meta.chat_params.use_jinja,
+                                                         empty_kwargs);
+        LOG_INF("%s: using chat_template %s: example_format: '%s'\n", __func__,
+                common_chat_templates_source(model_meta.chat_params.tmpls.get()),
+                example_format.c_str());
+    } catch (const std::exception &e) {
+        SRV_WRN("%s: chat template not supported, falling back to chatml\n", __func__);
+        chat_params.tmpls = common_chat_templates_init(ctx_server->get_model(), "chatml");
+    }
+
+    // Note: Callbacks are set up internally during load_model(), no manual setup needed
 
     // start the processing loop in a background thread
     std::thread t([ctx_server]() {
@@ -465,14 +489,8 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
 
     try {
         const auto &prompt = data.at("prompt");
-
-        std::vector<server_tokens> tokenized_prompts = tokenize_input_prompts(
-            ctx_server->get_vocab(),
-            nullptr,  // mtmd_context* - not used by jllama
-            prompt,
-            true,
-            true
-        );
+        std::vector<server_tokens> tokenized_prompts =
+                tokenize_input_prompts(ctx_server->get_vocab(), ctx_server->get_mctx(), prompt, true, true);
 
         tasks.reserve(tokenized_prompts.size());
         server_context_meta meta = ctx_server->get_meta();
@@ -490,12 +508,10 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
                 data
             );
             task.id_slot = json_value(data, "id_slot", -1);
+            // Note: id_selected_slot removed from server_task in new API
 
-            // OAI-compat - oaicompat field no longer exists in task_params
-            // task.params.oaicompat = OAICOMPAT_TYPE_NONE;
             task.params.oaicompat_cmpl_id = completion_id;
-            // oaicompat_model is already populated by params_from_json_cmpl
-
+            // Note: oaicompat_model is already populated by params_from_json_cmpl
             tasks.push_back(std::move(task));
         }
     } catch (const std::exception &e) {
