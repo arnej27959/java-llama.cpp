@@ -851,9 +851,12 @@ JNIEXPORT jbyteArray JNICALL Java_de_kherud_llama_LlamaModel_decodeBytes(JNIEnv 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_delete(JNIEnv *env, jobject obj) {
     server_context *ctx_server = getServerContextOrThrow(env, obj);
     if (! ctx_server) return;
+    auto model_name = ctx_server->get_meta().model_name;
+    LOG_INF("%s: deleting llama model %s, terminating server...\n", __func__, model_name.c_str());
     ctx_server->get_queue_tasks().terminate();
     ctx_server->terminate();
     delete ctx_server;
+    LOG_INF("%s: deleted server for llama model '%s'\n", __func__, model_name.c_str());
 }
 
 JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_cancelCompletion(JNIEnv *env, jobject obj, jint id_task) {
