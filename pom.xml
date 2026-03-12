@@ -3,15 +3,17 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
-	<groupId>de.kherud</groupId>
-	<artifactId>llama</artifactId>
-	<version>4.2.0</version>
+	<groupId>io.github.arnej27959</groupId>
+	<artifactId>jllama</artifactId>
+	<version>4.7.8</version>
 	<packaging>jar</packaging>
 
 	<name>${project.groupId}:${project.artifactId}</name>
-	<description>Java Bindings for llama.cpp - A Port of Facebook's LLaMA model
-		in C/C++.</description>
-	<url>https://github.com/kherud/java-llama.cpp</url>
+	<description>
+        Java Bindings for llama.cpp - A Port of Facebook's LLaMA model in C/C++.
+        Forked from: https://github.com/kherud/java-llama.cpp
+    </description>
+	<url>https://github.com/arnej27959/java-llama.cpp</url>
 
 	<licenses>
 		<license>
@@ -22,6 +24,11 @@
 
 	<developers>
 		<developer>
+			<name>Arne H. Juul</name>
+			<email>arnej27959@yahoo.com</email>
+			<organizationUrl>https://github.com/arnej27959/</organizationUrl>
+		</developer>
+		<developer>
 			<name>Konstantin Herud</name>
 			<email>konstantin.herud@gmail.com</email>
 			<organizationUrl>https://github.com/kherud</organizationUrl>
@@ -29,9 +36,9 @@
 	</developers>
 
 	<scm>
-		<connection>scm:git:git://github.com/kherud/java-llama.cpp.git</connection>
-		<developerConnection>scm:git:ssh://github.com:kherud/java-llama.cpp.git</developerConnection>
-		<url>https://github.com/kherud/java-llama.cpp/tree/master</url>
+		<connection>scm:git:git://github.com/arnej27959/java-llama.cpp.git</connection>
+		<developerConnection>scm:git:ssh://github.com:arnej27959/java-llama.cpp.git</developerConnection>
+		<url>https://github.com/arnej27959/java-llama.cpp/tree/master</url>
 	</scm>
 
 	<distributionManagement>
@@ -41,8 +48,7 @@
 		</snapshotRepository>
 		<repository>
 			<id>ossrh</id>
-			<url>
-				https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+			<url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
 		</repository>
 	</distributionManagement>
 
