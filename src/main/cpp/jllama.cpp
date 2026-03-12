@@ -902,10 +902,8 @@ JNIEXPORT jbyteArray JNICALL Java_de_kherud_llama_LlamaModel_jsonSchemaToGrammar
     } catch (std::exception &ex) {
         const char *msg = ex.what();
         if (msg) {
-            LOG_INF("\njsonSchemaToGrammar: Got C++ exception: %s\n", msg);
             throwJava(env, msg);
         } else {
-            LOG_INF("\njsonSchemaToGrammar: Got C++ exception (no message)\n");
             throwJava(env, "jsonSchemaToGrammarBytes: Got C++ exception without any message");
         }
         return nullptr;
