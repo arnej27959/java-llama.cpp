@@ -894,8 +894,20 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_setLogger(JNIEnv *env, jc
 
 JNIEXPORT jbyteArray JNICALL Java_de_kherud_llama_LlamaModel_jsonSchemaToGrammarBytes(JNIEnv *env, jclass clazz,
                                                                                       jstring j_schema) {
-    const std::string c_schema = parse_jstring(env, j_schema);
-    nlohmann::ordered_json c_schema_json = nlohmann::ordered_json::parse(c_schema);
-    const std::string c_grammar = json_schema_to_grammar(c_schema_json);
-    return parse_jbytes(env, c_grammar);
+    try {
+        const std::string c_schema = parse_jstring(env, j_schema);
+        nlohmann::ordered_json c_schema_json = nlohmann::ordered_json::parse(c_schema);
+        const std::string c_grammar = json_schema_to_grammar(c_schema_json);
+        return parse_jbytes(env, c_grammar);
+    } catch (std::exception &ex) {
+        const char *msg = ex.what();
+        if (msg) {
+            LOG_INF("jsonSchemaToGrammarBytes: Got C++ exception: %s", msg);
+            throwJava(env, msg);
+        } else {
+            LOG_INF("jsonSchemaToGrammarBytes: Got C++ exception");
+            throwJava(env, "jsonSchemaToGrammarBytes: Got C++ exception without any message");
+        }
+        return nullptr;
+    }
 }
