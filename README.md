@@ -7,13 +7,13 @@ Inference of Meta's LLaMA model (and others) in pure C/C++.
 
 **You are welcome to contribute**
 
-1. [Quick Start](#quick-start)  
-    1.1 [No Setup required](#no-setup-required)   
+1. [Quick Start](#quick-start)
+    1.1 [No Setup required](#no-setup-required)
     1.2 [Setup required](#setup-required)
-2. [Documentation](#documentation)  
-    2.1 [Example](#example)  
-    2.2 [Inference](#inference)  
-    2.3 [Infilling](#infilling)  
+2. [Documentation](#documentation)
+    2.1 [Example](#example)
+    2.2 [Inference](#inference)
+    2.3 [Infilling](#infilling)
 3. [Android](#importing-in-android)
 
 > [!NOTE]
@@ -39,13 +39,12 @@ We support CPU inference for the following platforms out of the box:
 
 - Linux x86-64, aarch64
 - MacOS x86-64, aarch64 (M-series)
-- Windows x86-64, x64
 
 If any of these match your platform, you can include the Maven dependency and get started.
 
 ### Setup required
 
-If none of the above listed platforms matches yours, currently you have to compile the library yourself (also if you 
+If none of the above listed platforms matches yours, currently you have to compile the library yourself (also if you
 want GPU acceleration).
 
 This consists of two steps: 1) Compiling the libraries and 2) putting them in the right location.
@@ -133,7 +132,7 @@ Also have a look at the other [examples](src/test/java/examples).
 
 ### Inference
 
-There are multiple inference tasks. In general, `LlamaModel` is stateless, i.e., you have to append the output of the 
+There are multiple inference tasks. In general, `LlamaModel` is stateless, i.e., you have to append the output of the
 model to your prompt in order to extend the context. If there is repeated content, however, the library will internally
 cache this, to improve performance.
 
@@ -164,7 +163,7 @@ You can simply set `InferenceParameters#setInputPrefix(String)` and `InferencePa
 
 ### Model/Inference Configuration
 
-There are two sets of parameters you can configure, `ModelParameters` and `InferenceParameters`. Both provide builder 
+There are two sets of parameters you can configure, `ModelParameters` and `InferenceParameters`. Both provide builder
 classes to ease configuration. `ModelParameters` are once needed for loading a model, `InferenceParameters` are needed
 for every inference task. All non-specified options have sensible defaults.
 
@@ -187,11 +186,11 @@ try (LlamaModel model = new LlamaModel(modelParams)) {
 ### Logging
 
 Per default, logs are written to stdout.
-This can be intercepted via the static method `LlamaModel.setLogger(LogFormat, BiConsumer<LogLevel, String>)`. 
+This can be intercepted via the static method `LlamaModel.setLogger(LogFormat, BiConsumer<LogLevel, String>)`.
 There is text- and JSON-based logging. The default is JSON.
 Note, that text-based logging will include additional output of the GGML backend, while JSON-based logging
 only provides request logs (while still writing GGML messages to stdout).
-To only change the log format while still writing to stdout, `null` can be passed for the callback. 
+To only change the log format while still writing to stdout, `null` can be passed for the callback.
 Logging can be disabled by passing an empty callback.
 
 ```java
@@ -208,7 +207,7 @@ LlamaModel.setLogger(null, (level, message) -> {});
 You can use this library in Android project.
 1. Add java-llama.cpp as a submodule in your an droid `app` project directory
 ```shell
-git submodule add https://github.com/kherud/java-llama.cpp 
+git submodule add https://github.com/kherud/java-llama.cpp
 ```
 2. Declare the library as a source in your build.gradle
 ```gradle
