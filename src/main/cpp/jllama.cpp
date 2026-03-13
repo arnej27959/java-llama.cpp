@@ -757,8 +757,6 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
         throwJava(env, msg.c_str());
         return nullptr;
     }
-    // get the result
-    std::vector<server_task_result_ptr> results(task_ids.size());
 
     // Build result HashMap: document string -> Float score
     jobject o_probabilities = env->NewObject(c_hash_map, cc_hash_map);
