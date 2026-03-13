@@ -425,6 +425,11 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
     if (!parsed_params) {
         return;
     }
+    if (params.n_parallel < 0) {
+        LOG_INF("%s: n_parallel is set to auto, using n_parallel = 4 and kv_unified = true\n", __func__);
+        params.n_parallel = 4;
+        params.kv_unified = true;
+    }
 
     SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
@@ -447,6 +452,7 @@ JNIEXPORT void JNICALL Java_de_kherud_llama_LlamaModel_loadModel(JNIEnv *env, jo
 
     // load the model - this now handles all initialization internally
     if (!ctx_server->load_model(params)) {
+        LOG_INF("%s: loading model failed\n", __func__);
         delete ctx_server;
         llama_backend_free();
         throwJava(env, "could not load model from given file path");
