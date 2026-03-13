@@ -713,7 +713,7 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
 JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jobject obj, jstring jprompt,
                                                                  jobjectArray documents) {
     server_context *ctx_server = getServerContextOrThrow(env, obj);
-    if (! ctx_server) return nullptr;
+    if (!ctx_server) return nullptr;
 
     server_context_meta meta = ctx_server->get_meta();
     if (!ctx_server->get_params_base().embedding || meta.pooling_type != LLAMA_POOLING_TYPE_RANK) {
@@ -724,74 +724,60 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
 
     const std::string prompt = parse_jstring(env, jprompt);
 
-    llama_context* ctx = ctx_server->get_llama_context();
-    const llama_model* model = llama_get_model(ctx);
-
-    json responses = json::array();
-
-    std::vector<server_task> tasks;
     const jsize amount_documents = env->GetArrayLength(documents);
     auto *document_array = parse_string_array(env, documents, amount_documents);
     auto document_vector = std::vector<std::string>(document_array, document_array + amount_documents);
     free_string_array(document_array, amount_documents);
 
+    // get a response reader (manages task IDs and result queues)
+    server_response_reader rd = ctx_server->get_response_reader();
+
+    std::vector<server_task> tasks;
     tasks.reserve(document_vector.size());
-    for (int i = 0; i < document_vector.size(); i++) {
-        auto task = server_task(SERVER_TASK_TYPE_RERANK);
-        task.id = ctx_server->get_queue_tasks().get_new_id();
-        task.index = i;
+    for (size_t i = 0; i < document_vector.size(); i++) {
+        server_task task(SERVER_TASK_TYPE_RERANK);
+        task.id     = rd.get_new_id();
+        task.index  = i;
         task.tokens = format_prompt_rerank(
-            model,
+            ctx_server->get_model(),
             ctx_server->get_vocab(),
-            nullptr,  // no multimodal
-            prompt,   // query as string
-            document_vector[i]  // doc as string
+            ctx_server->get_mctx(),
+            prompt,
+            document_vector[i]
         );
         tasks.push_back(std::move(task));
     }
-    for (const auto & task : tasks) {
-        ctx_server->get_queue_results().add_waiting_task_id(task.id);
-    }
-    std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
-    ctx_server->get_queue_tasks().post(std::move(tasks));
+    rd.post_tasks(std::move(tasks));
 
+    // wait for all results (no HTTP connection to check, so never stop early)
+    auto all_results = rd.wait_for_all([]{ return false; });
+
+    if (all_results.error) {
+        auto msg = all_results.error->to_json()["message"].get<std::string>();
+        throwJava(env, msg.c_str());
+        return nullptr;
+    }
     // get the result
     std::vector<server_task_result_ptr> results(task_ids.size());
 
-    // Create a new HashMap instance
+    // Build result HashMap: document string -> Float score
     jobject o_probabilities = env->NewObject(c_hash_map, cc_hash_map);
     if (o_probabilities == nullptr) {
         throwJava(env, "Failed to create HashMap object.");
         return nullptr;
     }
 
-    for (size_t i = 0; i < task_ids.size(); i++) {
-        server_task_result_ptr result = ctx_server->get_queue_results().recv(task_ids);
-
-        // Prepare result for JSON conversion (calls update() if needed)
-        prepare_result_for_json(result);
-
-        if (result->is_error()) {
-            auto response = result->to_json()["message"].get<std::string>();
-            for (int id_task : task_ids) {
-                ctx_server->get_queue_results().remove_waiting_task_id(id_task);
-            }
-            throwJava(env, response.c_str());
-            return nullptr;
-        }
-
+    for (auto & result : all_results.results) {
         const auto out_res = result->to_json();
-
-        int index = out_res["index"].get<int>();
-        float score = out_res["score"].get<float>();
-        std::string tok_str = document_vector[index];
-        jstring jtok_str = env->NewStringUTF(tok_str.c_str());
-
-        jobject jprob = env->NewObject(c_float, cc_float, score);
+        int index     = out_res["index"].get<int>();
+        float score   = out_res["score"].get<float>();
+        jstring jtok_str = env->NewStringUTF(document_vector[index].c_str());
+        jobject jprob    = env->NewObject(c_float, cc_float, score);
         env->CallObjectMethod(o_probabilities, m_map_put, jtok_str, jprob);
         env->DeleteLocalRef(jtok_str);
         env->DeleteLocalRef(jprob);
     }
+
     jbyteArray jbytes = parse_jbytes(env, prompt);
     return env->NewObject(c_output, cc_output, jbytes, o_probabilities, true);
 }
