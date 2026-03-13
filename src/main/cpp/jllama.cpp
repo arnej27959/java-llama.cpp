@@ -560,9 +560,8 @@ JNIEXPORT jint JNICALL Java_de_kherud_llama_LlamaModel_requestCompletion(JNIEnv 
     for (const auto & task : tasks) {
         ctx_server->get_queue_results().add_waiting_task_id(task.id);
     }
-    ctx_server->get_queue_tasks().post(std::move(tasks));
-
     const auto task_ids = server_task::get_list_id(tasks);
+    ctx_server->get_queue_tasks().post(std::move(tasks));
 
     if (task_ids.size() != 1) {
         throwJava(env, "multitasking currently not supported");
@@ -651,9 +650,9 @@ JNIEXPORT jfloatArray JNICALL Java_de_kherud_llama_LlamaModel_embed(JNIEnv *env,
     for (const auto & task : tasks) {
         ctx_server->get_queue_results().add_waiting_task_id(task.id);
     }
+    std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
     ctx_server->get_queue_tasks().post(std::move(tasks));
 
-    std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
     const auto id_task = *task_ids.begin();
     json responses = json::array();
 
@@ -753,10 +752,10 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
     for (const auto & task : tasks) {
         ctx_server->get_queue_results().add_waiting_task_id(task.id);
     }
+    std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
     ctx_server->get_queue_tasks().post(std::move(tasks));
 
     // get the result
-    std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
     std::vector<server_task_result_ptr> results(task_ids.size());
 
     // Create a new HashMap instance
@@ -766,7 +765,8 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
         return nullptr;
     }
 
-    for (int i = 0; i < (int)task_ids.size(); i++) {
+    for (size_t i = 0; i < task_ids.size(); i++) {
+        fprintf(stderr, "round %zd / %zd\n", i, task_ids.size());
         server_task_result_ptr result = ctx_server->get_queue_results().recv(task_ids);
 
         // Prepare result for JSON conversion (calls update() if needed)
@@ -774,7 +774,7 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
 
         if (result->is_error()) {
             auto response = result->to_json()["message"].get<std::string>();
-            for (const int id_task : task_ids) {
+            for (int id_task : task_ids) {
                 ctx_server->get_queue_results().remove_waiting_task_id(id_task);
             }
             throwJava(env, response.c_str());
@@ -782,12 +782,6 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
         }
 
         const auto out_res = result->to_json();
-
-        if (result->is_stop()) {
-            for (const int id_task : task_ids) {
-                ctx_server->get_queue_results().remove_waiting_task_id(id_task);
-            }
-        }
 
         int index = out_res["index"].get<int>();
         float score = out_res["score"].get<float>();
