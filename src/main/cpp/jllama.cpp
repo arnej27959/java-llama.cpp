@@ -766,7 +766,6 @@ JNIEXPORT jobject JNICALL Java_de_kherud_llama_LlamaModel_rerank(JNIEnv *env, jo
     }
 
     for (size_t i = 0; i < task_ids.size(); i++) {
-        fprintf(stderr, "round %zd / %zd\n", i, task_ids.size());
         server_task_result_ptr result = ctx_server->get_queue_results().recv(task_ids);
 
         // Prepare result for JSON conversion (calls update() if needed)
