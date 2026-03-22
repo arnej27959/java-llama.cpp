@@ -95,7 +95,7 @@ if(NOT JNI_INCLUDE_DIRS)
     message(FATAL_ERROR "Could not determine JNI include directories")
 endif()
 
-add_library(jllama SHARED src/main/cpp/jllama.cpp)
+add_library(jllama SHARED src/main/cpp/jllama.cpp src/main/cpp/llama_server.cpp)
 
 set_target_properties(jllama PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(jllama PRIVATE src/main/cpp ${JNI_INCLUDE_DIRS})
