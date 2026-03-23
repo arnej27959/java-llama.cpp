@@ -263,38 +263,36 @@ std::map<std::string, float> LlamaServer::rerank(const std::string&             
         throw std::runtime_error("This server does not support reranking. Start it with `--reranking`");
     }
 
-    llama_context*     ctx = ctx_server_->get_llama_context();
-    const llama_model* model = llama_get_model(ctx);
+    // get a response reader (manages task IDs and result queues)
+    server_response_reader rd = ctx_server_->get_response_reader();
 
     std::vector<server_task> tasks;
     tasks.reserve(documents.size());
     for (size_t i = 0; i < documents.size(); i++) {
-        auto task = server_task(SERVER_TASK_TYPE_RERANK);
-        task.id = ctx_server_->get_queue_tasks().get_new_id();
-        task.index = i;
-        task.tokens = format_prompt_rerank(model, ctx_server_->get_vocab(), nullptr, query, documents[i]);
+        server_task task(SERVER_TASK_TYPE_RERANK);
+        task.id     = rd.get_new_id();
+        task.index  = i;
+        task.tokens = format_prompt_rerank(
+            ctx_server_->get_model(),
+            ctx_server_->get_vocab(),
+            ctx_server_->get_mctx(),
+            query,
+            documents[i]
+        );
         tasks.push_back(std::move(task));
     }
+    rd.post_tasks(std::move(tasks));
 
-    for (const auto& task : tasks) {
-        ctx_server_->get_queue_results().add_waiting_task_id(task.id);
+    // wait for all results (no HTTP connection to check, so never stop early)
+    auto all_results = rd.wait_for_all([] { return false; });
+
+    if (all_results.error) {
+        auto msg = all_results.error->to_json()["message"].get<std::string>();
+        throw std::runtime_error(msg);
     }
-    std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
-    ctx_server_->get_queue_tasks().post(std::move(tasks));
 
     std::map<std::string, float> scores;
-    for (size_t i = 0; i < task_ids.size(); i++) {
-        server_task_result_ptr result = ctx_server_->get_queue_results().recv(task_ids);
-        prepare_result_for_json(result);
-
-        if (result->is_error()) {
-            auto msg = result->to_json()["message"].get<std::string>();
-            for (int id_task : task_ids) {
-                ctx_server_->get_queue_results().remove_waiting_task_id(id_task);
-            }
-            throw std::runtime_error(msg);
-        }
-
+    for (auto& result : all_results.results) {
         const auto out_res = result->to_json();
         int        index = out_res["index"].get<int>();
         float      score = out_res["score"].get<float>();
