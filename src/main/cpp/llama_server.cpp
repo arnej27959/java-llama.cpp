@@ -115,6 +115,7 @@ void LlamaServer::shutdown() {
     auto model_name = ctx_server_->get_meta().model_name;
     LOG_INF("%s: deleting llama model %s, terminating server...\n", __func__, model_name.c_str());
     ctx_server_->get_queue_tasks().terminate();
+    common_log_pause(common_log_main());
     ctx_server_->terminate();
     if (loop_thread_.joinable()) {
         loop_thread_.join();
